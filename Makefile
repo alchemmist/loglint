@@ -1,4 +1,4 @@
-.PHONY: build
+.PHONY: build lint vet fmt fmt-check golangci-lint staticcheck
 
 BINARY_NAME = loglint
 PLUGIN_NAME = loglint.so

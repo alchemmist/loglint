@@ -7,3 +7,5 @@
 /golangci-lint
 /golangci-lint.exe
 /example.so
+/loglint
+/loglint.so
