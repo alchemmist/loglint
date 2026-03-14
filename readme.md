@@ -1,1 +1,1 @@
-This is an example linter that can be used as a plugin for `golangci-lint`.
+Selectel test assignment, Spring internship 2026, Go-backend developer.
