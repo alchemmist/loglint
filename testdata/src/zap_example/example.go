@@ -6,7 +6,7 @@ func exampleZap(logger *zap.Logger, sugar *zap.SugaredLogger) {
 	token := "tok-xyz"
 
 	// Rule 1: uppercase start
-	logger.Info("Starting server") // want `log message should start with a lowercase letter`
+	logger.Info("Starting server")        // want `log message should start with a lowercase letter`
 	sugar.Infow("Connection established") // want `log message should start with a lowercase letter`
 
 	// Rule 1: correct
