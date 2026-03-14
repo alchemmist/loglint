@@ -15,5 +15,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build
+      - name: Build cli
         run: make build
+
+      - name: Build plugin
+        run: make plugin

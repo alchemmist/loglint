@@ -3,9 +3,9 @@ linters:
   enable:
     - loglint
 
-  settings:
-    custom:
-      loglint:
-        type: module
-        description: Check log messaging in Go code.
-        original-url: github.com/alchemmist/loglint
+	linters-settings:
+	  custom:
+	    loglint:
+	      path: ./loglint.so
+	      description: Linter for checking log messages
+	      original-url: github.com/loglint/loglint

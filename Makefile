@@ -1,4 +1,4 @@
-.PHONY: build lint vet fmt fmt-check golangci-lint staticcheck
+.PHONY: build lint vet fmt fmt-check golangci-lint staticcheck plugin
 
 BINARY_NAME = loglint
 PLUGIN_NAME = loglint.so
@@ -18,7 +18,10 @@ STATICCHECK := $(GOBIN)/staticcheck
 build:
 	$(GOBUILD) -o $(BINARY_NAME) ./cmd/loglint/
 
-lint: vet fmt-check golangci-lint
+plugin:
+	$(GOBUILD) -buildmode=plugin -o $(PLUGIN_NAME) ./plugin/
+
+check: vet fmt-check golangci-lint staticcheck
 
 vet:
 	$(GOVET) $(GO_PACKAGES)
@@ -31,7 +34,7 @@ fmt-check:
 
 golangci-lint:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	$(GOLANGCI_LINT) run $(GO_PACKAGES) 
+	$(GOLANGCI_LINT) run $(GO_PACKAGES)
 
 staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
