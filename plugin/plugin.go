@@ -11,11 +11,12 @@
 //	    loglint:
 //	      path: ./loglint.so
 //	      description: Linter for checking log messages
-//	      original-url: github.com/loglint/loglint
+//	      original-url: github.com/alchemmist/loglint
 package main
 
 //nolint:depguard
 import (
+	"github.com/alchemmist/loglint/pkg/analyzer"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -28,6 +29,6 @@ type analyzerPlugin struct{}
 // GetAnalyzers returns the list of analyzers provided by this plugin.
 func (*analyzerPlugin) GetAnalyzers() []*analysis.Analyzer {
 	return []*analysis.Analyzer{
-		// TODO: write a longlint analyzer
+		analyzer.Analyzer,
 	}
 }

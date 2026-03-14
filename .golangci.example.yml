@@ -8,4 +8,4 @@ linters:
 	    loglint:
 	      path: ./loglint.so
 	      description: Linter for checking log messages
-	      original-url: github.com/loglint/loglint
+	      original-url: github.com/alchemmist/loglint
