@@ -1,18 +1,8 @@
-// Package analyzer implements a Go static analysis pass that checks log messages
-// for compliance with logging best practices.
-//
-// The analyzer supports the following loggers:
-//   - log/slog (Info, Warn, Error, Debug, and their context variants)
-//   - go.uber.org/zap (Sugar methods: Infof, Warnf, Errorf, Debugf, Infow, etc.)
-//
-// Rules enforced:
-//  1. Log messages must start with a lowercase letter.
-//  2. Log messages must be in English only.
-//  3. Log messages must not contain special characters or emojis.
-//  4. Log messages must not contain potentially sensitive data.
 package analyzer
 
 import (
+	"errors"
+	"flag"
 	"go/ast"
 	"go/token"
 	"strconv"
@@ -23,17 +13,30 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-var configFlag string
+var (
+	configFlag string
+	fixFlag    bool
+)
 
-var Analyzer = &analysis.Analyzer{
-	Name:     "loglint",
-	Doc:      "checks log messages for common issues: uppercase start, non-English text, special characters, and sensitive data",
-	Requires: []*analysis.Analyzer{inspect.Analyzer},
-	Run:      run,
-}
+func NewAnalyzer() *analysis.Analyzer {
+	analyzer := &analysis.Analyzer{
+		Name: "loglint",
+		Doc: "checks log messages for common issues: " +
+			"uppercase start, non-English text, " +
+			"special characters, and sensitive data",
+		Requires:         []*analysis.Analyzer{inspect.Analyzer},
+		Run:              run,
+		URL:              "https://github.com/alchemmsit/loglint",
+		Flags:            *flag.NewFlagSet("loglint", flag.ExitOnError),
+		RunDespiteErrors: false,
+		ResultType:       nil,
+		FactTypes:        nil,
+	}
 
-func init() {
-	Analyzer.Flags.StringVar(&configFlag, "config", "", "path to loglint configuration file")
+	analyzer.Flags.StringVar(&configFlag, "config", "", "path to loglint configuration file")
+	analyzer.Flags.BoolVar(&fixFlag, "fix", false, "apply suggested automatic fixes")
+
+	return analyzer
 }
 
 var slogMethods = map[string]bool{
@@ -94,11 +97,15 @@ var stdLogFunctions = map[string]bool{
 	"Panicln": true,
 }
 
+var ErrNoInspector = errors.New("expected inspector.Inspector from inspect.Analyzer")
+
 func run(pass *analysis.Pass) (any, error) {
 	var cfg *Config
+
 	if configFlag != "" {
 		var err error
-		cfg, err = LoadConfigFromPath(configFlag)
+
+		cfg, err = loadConfigFile(configFlag)
 		if err != nil {
 			cfg = DefaultConfig()
 		}
@@ -106,96 +113,106 @@ func run(pass *analysis.Pass) (any, error) {
 		cfg = LoadConfig()
 	}
 
-	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+	res, ok := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+	if !ok || res == nil {
+		return nil, ErrNoInspector
+	}
+
+	insp := res
 
 	nodeFilter := []ast.Node{
 		(*ast.CallExpr)(nil),
 	}
 
 	insp.Preorder(nodeFilter, func(n ast.Node) {
-		call := n.(*ast.CallExpr)
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return
+		}
+
 		analyzeCall(pass, call, cfg)
 	})
 
-	return nil, nil
+	return struct{}{}, nil
 }
 
-// analyzeCall determines if a function call is a log call and inspects its message argument.
 func analyzeCall(pass *analysis.Pass, call *ast.CallExpr, cfg *Config) {
 	msgArg, msgIndex := extractLogMessage(call)
 	if msgArg == nil {
 		return
 	}
 
-	// For rules 1-3, we need the string literal value.
-	if lit, ok := getStringLiteral(msgArg); ok {
-		msg, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			return
-		}
-		if len(msg) == 0 {
-			return
-		}
-
-		pos := lit.Pos() + 1 // skip opening quote
-		end := lit.End() - 1 // skip closing quote
-
-		if cfg.Rules.LowercaseStart {
-			checkLowercaseStart(pass, pos, end, msg)
-		}
-		if cfg.Rules.EnglishOnly {
-			checkEnglishOnly(pass, pos, end, msg)
-		}
-		if cfg.Rules.NoSpecialChars {
-			checkNoSpecialChars(pass, pos, end, msg)
-		}
+	lit, ok := getStringLiteral(msgArg)
+	if !ok {
+		return
 	}
 
-	// Rule 4: Check for sensitive data (works on expressions, not just literals).
+	msg, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return
+	}
+
+	if len(msg) == 0 {
+		return
+	}
+
+	pos := lit.Pos() + 1
+	end := lit.End() - 1
+
+	if cfg.Rules.LowercaseStart {
+		checkLowercaseStart(pass, pos, end, msg)
+	}
+
+	if cfg.Rules.EnglishOnly {
+		checkEnglishOnly(pass, pos, end, msg)
+	}
+
+	if cfg.Rules.NoSpecialChars {
+		checkNoSpecialChars(pass, pos, end, msg)
+	}
+
 	if cfg.Rules.NoSensitiveData {
 		checkSensitiveDataInArgs(pass, call, msgIndex, cfg.Patterns.SensitiveKeywords)
 	}
 }
 
-// checkSensitiveDataInArgs checks the log call arguments for sensitive data patterns.
 func checkSensitiveDataInArgs(pass *analysis.Pass, call *ast.CallExpr, msgIndex int, keywords []string) {
 	if msgIndex < 0 || msgIndex >= len(call.Args) {
 		return
 	}
 
-	// Check the message argument itself (could be concatenation).
 	msgArg := call.Args[msgIndex]
 	checkNoSensitiveData(pass, msgArg.Pos(), msgArg.End(), msgArg, keywords)
 
-	// Also check remaining arguments for sensitive variable references.
 	for i := msgIndex + 1; i < len(call.Args); i++ {
 		arg := call.Args[i]
 		checkSensitiveIdent(pass, arg, keywords)
 	}
 }
 
-// checkSensitiveIdent checks if an expression references a sensitive variable.
 func checkSensitiveIdent(pass *analysis.Pass, expr ast.Expr, keywords []string) {
 	ast.Inspect(expr, func(n ast.Node) bool {
-		ident, ok := n.(*ast.Ident)
+		identNode, ok := n.(*ast.Ident)
 		if !ok {
 			return true
 		}
-		name := strings.ToLower(ident.Name)
+
+		lowerName := strings.ToLower(identNode.Name)
+
 		for _, keyword := range keywords {
-			if strings.Contains(name, keyword) {
+			if strings.Contains(lowerName, keyword) {
 				pass.Reportf(expr.Pos(),
 					"log argument may contain sensitive data: variable %q matches sensitive keyword %q",
-					ident.Name, keyword)
+					identNode.Name, keyword)
+
 				return false
 			}
 		}
+
 		return true
 	})
 }
 
-// extractLogMessage identifies log calls and returns the message argument expression and its index.
-// Returns (nil, -1) if the call is not a recognized log call.
 func extractLogMessage(call *ast.CallExpr) (ast.Expr, int) {
 	if len(call.Args) == 0 {
 		return nil, -1
@@ -205,7 +222,6 @@ func extractLogMessage(call *ast.CallExpr) (ast.Expr, int) {
 	case *ast.SelectorExpr:
 		return extractSelectorLogMessage(fn, call)
 	case *ast.Ident:
-		// Direct function calls like log.Print (after dot-import)
 		if stdLogFunctions[fn.Name] {
 			return call.Args[0], 0
 		}
@@ -214,8 +230,6 @@ func extractLogMessage(call *ast.CallExpr) (ast.Expr, int) {
 	return nil, -1
 }
 
-// knownLogReceivers contains common variable names used for loggers.
-// This reduces false positives from matching any method named Info/Error/etc.
 var knownLogReceivers = map[string]bool{
 	"log":    true,
 	"logger": true,
@@ -228,43 +242,14 @@ var knownLogReceivers = map[string]bool{
 func extractSelectorLogMessage(sel *ast.SelectorExpr, call *ast.CallExpr) (ast.Expr, int) {
 	methodName := sel.Sel.Name
 
-	switch x := sel.X.(type) {
-	case *ast.Ident:
-		// Package-level calls: slog.Info("msg"), log.Print("msg")
-		switch x.Name {
-		case "slog":
-			if slogMethods[methodName] {
-				return getSlogMessageArg(methodName, call)
-			}
-		case "log":
-			if stdLogFunctions[methodName] {
-				return call.Args[0], 0
-			}
-		}
-
-		// Method calls on known logger variable names: logger.Info("msg"), sugar.Infow("msg")
-		if knownLogReceivers[strings.ToLower(x.Name)] {
-			if slogMethods[methodName] {
-				return getSlogMessageArg(methodName, call)
-			}
-			if zapSugarMethods[methodName] {
-				return getZapSugarMessageArg(methodName, call)
-			}
-			if zapLoggerMethods[methodName] {
-				return call.Args[0], 0
-			}
-		}
-
-	case *ast.CallExpr:
-		// Chained calls: logger.Sugar().Infow("msg")
-		// sel.X is the Sugar() call expression, methodName is Infow/etc.
-		if zapSugarMethods[methodName] {
-			return getZapSugarMessageArg(methodName, call)
-		}
+	if expr, idx, ok := handleIdent(sel, call, methodName); ok {
+		return expr, idx
 	}
 
-	// Only match zap-specific suffixed methods (Infof, Infow, Warnf, etc.)
-	// to reduce false positives. These method names are very unlikely outside of loggers.
+	if expr, idx, ok := handleCallExpr(sel, call, methodName); ok {
+		return expr, idx
+	}
+
 	if isZapSpecificMethod(methodName) {
 		return getZapSugarMessageArg(methodName, call)
 	}
@@ -272,8 +257,52 @@ func extractSelectorLogMessage(sel *ast.SelectorExpr, call *ast.CallExpr) (ast.E
 	return nil, -1
 }
 
-// isZapSpecificMethod returns true for methods that are specific to zap's SugaredLogger
-// and very unlikely to appear in non-logger code (e.g., Infof, Infow, Warnf, Debugw).
+func handleIdent(sel *ast.SelectorExpr, call *ast.CallExpr, methodName string) (ast.Expr, int, bool) {
+	receiverNode, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return nil, -1, false
+	}
+
+	switch receiverNode.Name {
+	case "slog":
+		if slogMethods[methodName] {
+			expr, idx := getSlogMessageArg(methodName, call)
+			return expr, idx, true
+		}
+	case "log":
+		if stdLogFunctions[methodName] {
+			return call.Args[0], 0, true
+		}
+	}
+
+	if knownLogReceivers[strings.ToLower(receiverNode.Name)] {
+		if slogMethods[methodName] {
+			expr, idx := getSlogMessageArg(methodName, call)
+			return expr, idx, true
+		}
+
+		if zapSugarMethods[methodName] {
+			expr, idx := getZapSugarMessageArg(methodName, call)
+			return expr, idx, true
+		}
+
+		if zapLoggerMethods[methodName] {
+			return call.Args[0], 0, true
+		}
+	}
+
+	return nil, -1, false
+}
+
+func handleCallExpr(sel *ast.SelectorExpr, call *ast.CallExpr, methodName string) (ast.Expr, int, bool) {
+	if _, ok := sel.X.(*ast.CallExpr); ok && zapSugarMethods[methodName] {
+		expr, idx := getZapSugarMessageArg(methodName, call)
+		return expr, idx, true
+	}
+
+	return nil, -1, false
+}
+
 func isZapSpecificMethod(name string) bool {
 	switch name {
 	case "Infof", "Infow",
@@ -285,47 +314,44 @@ func isZapSpecificMethod(name string) bool {
 		"DPanicf", "DPanicw":
 		return true
 	}
+
 	return false
 }
 
-// getSlogMessageArg returns the message argument for slog calls.
-//
-// Signatures:
-//   - slog.Info(msg, args...)          → msg is Args[0]
-//   - slog.InfoContext(ctx, msg, args...) → msg is Args[1]
-//   - slog.Log(ctx, level, msg, args...) → msg is Args[2]
+const (
+	slogLogMsgIndex     = 2
+	slogContextMsgIndex = 1
+)
+
 func getSlogMessageArg(method string, call *ast.CallExpr) (ast.Expr, int) {
 	if method == "Log" {
-		// slog.Log(ctx context.Context, level Level, msg string, args ...any)
-		if len(call.Args) >= 3 {
-			return call.Args[2], 2
+		if len(call.Args) > slogLogMsgIndex {
+			return call.Args[slogLogMsgIndex], slogLogMsgIndex
 		}
+
 		return nil, -1
 	}
+
 	if strings.HasSuffix(method, "Context") {
-		// slog.InfoContext(ctx context.Context, msg string, args ...any)
-		if len(call.Args) >= 2 {
-			return call.Args[1], 1
+		if len(call.Args) > slogContextMsgIndex {
+			return call.Args[slogContextMsgIndex], slogContextMsgIndex
 		}
+
 		return nil, -1
 	}
-	// slog.Info(msg string, args ...any)
+
 	return call.Args[0], 0
 }
 
-// getZapSugarMessageArg returns the message argument for zap sugar logger calls.
-func getZapSugarMessageArg(method string, call *ast.CallExpr) (ast.Expr, int) {
-	// All sugar methods take message as the first argument.
+func getZapSugarMessageArg(_ string, call *ast.CallExpr) (ast.Expr, int) {
 	return call.Args[0], 0
 }
 
-// getStringLiteral extracts a basic string literal from an expression.
 func getStringLiteral(expr ast.Expr) (*ast.BasicLit, bool) {
-	switch e := expr.(type) {
-	case *ast.BasicLit:
-		if e.Kind == token.STRING {
-			return e, true
-		}
+	litNode, ok := expr.(*ast.BasicLit)
+	if !ok || litNode.Kind != token.STRING {
+		return nil, false
 	}
-	return nil, false
+
+	return litNode, true
 }

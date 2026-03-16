@@ -2,32 +2,29 @@ package analyzer
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds the linter configuration.
 type Config struct {
-	Rules    RulesConfig    `json:"rules" yaml:"rules"`
+	Rules    RulesConfig    `json:"rules"    yaml:"rules"`
 	Patterns PatternsConfig `json:"patterns" yaml:"patterns"`
 }
 
-// RulesConfig allows enabling/disabling individual rules.
 type RulesConfig struct {
-	LowercaseStart  bool `json:"lowercase_start" yaml:"lowercase_start"`
-	EnglishOnly     bool `json:"english_only" yaml:"english_only"`
-	NoSpecialChars  bool `json:"no_special_chars" yaml:"no_special_chars"`
-	NoSensitiveData bool `json:"no_sensitive_data" yaml:"no_sensitive_data"`
+	LowercaseStart  bool `json:"lowercaseStart"  yaml:"lowercase_start"`
+	EnglishOnly     bool `json:"englishOnly"     yaml:"english_only"`
+	NoSpecialChars  bool `json:"noSpecialChars"  yaml:"no_special_chars"`
+	NoSensitiveData bool `json:"noSensitiveData" yaml:"no_sensitive_data"`
 }
 
-// PatternsConfig allows specifying custom patterns for sensitive data detection.
 type PatternsConfig struct {
-	SensitiveKeywords []string `json:"sensitive_keywords" yaml:"sensitive_keywords"`
+	SensitiveKeywords []string `json:"sensitiveKeywords" yaml:"sensitive_keywords"`
 }
 
-// DefaultConfig returns the default configuration with all rules enabled.
 func DefaultConfig() *Config {
 	return &Config{
 		Rules: RulesConfig{
@@ -42,7 +39,6 @@ func DefaultConfig() *Config {
 	}
 }
 
-// DefaultSensitiveKeywords returns the default list of sensitive data keywords.
 func DefaultSensitiveKeywords() []string {
 	return []string{
 		"password", "passwd", "pwd",
@@ -59,9 +55,6 @@ func DefaultSensitiveKeywords() []string {
 	}
 }
 
-// LoadConfig attempts to load configuration from known file locations.
-// It searches for .loglint.yml, .loglint.yaml, or .loglint.json
-// in the current directory and parent directories.
 func LoadConfig() *Config {
 	configNames := []string{".loglint.yml", ".loglint.yaml", ".loglint.json"}
 
@@ -82,21 +75,17 @@ func LoadConfig() *Config {
 		if parent == dir {
 			break
 		}
+
 		dir = parent
 	}
 
 	return DefaultConfig()
 }
 
-// LoadConfigFromPath loads configuration from a specific file path.
-func LoadConfigFromPath(path string) (*Config, error) {
-	return loadConfigFile(path)
-}
-
 func loadConfigFile(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return nil, wrapReadError(readErr)
 	}
 
 	cfg := DefaultConfig()
@@ -104,19 +93,31 @@ func loadConfigFile(path string) (*Config, error) {
 
 	switch ext {
 	case ".json":
-		if err := json.Unmarshal(data, cfg); err != nil {
-			return nil, err
+		if unmarshalErr := json.Unmarshal(data, cfg); unmarshalErr != nil {
+			return nil, wrapUnmarshalError(unmarshalErr)
 		}
 	case ".yml", ".yaml":
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, err
+		if unmarshalErr := yaml.Unmarshal(data, cfg); unmarshalErr != nil {
+			return nil, wrapUnmarshalError(unmarshalErr)
 		}
 	}
 
-	// If custom sensitive keywords are not provided, use defaults.
 	if len(cfg.Patterns.SensitiveKeywords) == 0 {
 		cfg.Patterns.SensitiveKeywords = DefaultSensitiveKeywords()
 	}
 
 	return cfg, nil
+}
+
+var (
+	ErrConfigRead      = errors.New("failed to read config file")
+	ErrConfigUnmarshal = errors.New("failed to unmarshal config file")
+)
+
+func wrapReadError(err error) error {
+	return errors.Join(ErrConfigRead, err)
+}
+
+func wrapUnmarshalError(err error) error {
+	return errors.Join(ErrConfigUnmarshal, err)
 }

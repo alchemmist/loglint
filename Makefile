@@ -1,4 +1,4 @@
-.PHONY: build lint vet fmt fmt-check golangci-lint staticcheck plugin
+.PHONY: build lint vet fmt fmt-check staticcheck plugin golangci-lint-analyzer golangci-lint-rest
 
 BINARY_NAME = loglint
 PLUGIN_NAME = loglint.so
@@ -6,8 +6,6 @@ PLUGIN_NAME = loglint.so
 GOCMD = go
 GOBUILD = $(GOCMD) build
 GOTEST = $(GOCMD) test
-GOVET = $(GOCMD) vet
-GOFMT = gofmt
 GOMOD = $(GOCMD) mod
 GOBIN := $(shell go env GOPATH)/bin
 GO_PACKAGES := ./...
@@ -21,20 +19,25 @@ build:
 plugin:
 	$(GOBUILD) -buildmode=plugin -o $(PLUGIN_NAME) ./plugin/
 
-check: vet fmt-check golangci-lint staticcheck
+check: vet fmt-check golangci-lint-analyzer golangci-lint-rest staticcheck
 
 vet:
-	$(GOVET) $(GO_PACKAGES)
+	go vet $(GO_PACKAGES)
 
 fmt:
-	$(GOFMT) -w .
+	go install mvdan.cc/gofumpt@latest
+	gofmt -w .
+	gofumpt -w -extra .
+	$(GOLANGCI_LINT) run --fix ./...  > /dev/null 2>&1 || true
 
 fmt-check:
-	@test -z "$$($(GOFMT) -l .)" || (echo "Files not formatted:" && $(GOFMT) -l . && exit 1)
+	@test -z "$$(gofmt -l .)" || (echo "Files not formatted:" && gofmt -l . && exit 1)
 
-golangci-lint:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	$(GOLANGCI_LINT) run $(GO_PACKAGES)
+golangci-lint-analyzer:
+	$(GOLANGCI_LINT) run ./pkg/analyzer/...
+
+golangci-lint-rest:
+	$(GOLANGCI_LINT) run ./cmd/... ./plugin/...
 
 staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest

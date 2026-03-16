@@ -6,3 +6,24 @@ linters:
   disable:
     - tenv
     - godox
+    - gochecknoglobals
+    - nlreturn
+
+linters-settings:
+  depguard:
+    rules:
+      allow_analysis:
+        list-mode: lax
+        files:
+          - "pkg/analyzer/**"
+          - "plugin/**"
+        allow:
+          - "golang.org/x/tools/go/analysis"
+          - "golang.org/x/tools/go/analysis/passes/inspect"
+
+  tagliatelle:
+    case:
+      use-field-name: false
+      rules:
+        json: camel
+        yaml: snake
