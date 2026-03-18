@@ -10,3 +10,4 @@
 /loglint
 /loglint.so
 /.cache/
+coverage.out
