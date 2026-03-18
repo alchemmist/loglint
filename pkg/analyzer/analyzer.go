@@ -159,13 +159,13 @@ func getBoolFlag(flags *flag.FlagSet, name string) bool {
 		return false
 	}
 
-	getter, ok := flagValue.Value.(flag.Getter)
-	if !ok {
+	getter, getterOK := flagValue.Value.(flag.Getter)
+	if !getterOK {
 		return false
 	}
 
-	value, ok := getter.Get().(bool)
-	if !ok {
+	value, valueOK := getter.Get().(bool)
+	if !valueOK {
 		return false
 	}
 

@@ -16,6 +16,7 @@ GO_PACKAGES := ./...
 
 GOLANGCI_LINT := $(GOBIN)/golangci-lint
 STATICCHECK := $(GOBIN)/staticcheck
+GOTESTSUM := $(GOBIN)/gotestsum
 
 build:
 	$(GOBUILD) -o $(BINARY_NAME) ./cmd/loglint/
@@ -30,8 +31,8 @@ vet:
 
 fmt:
 	go install mvdan.cc/gofumpt@latest
-	gofmt -w .
-	gofumpt -w -extra .
+	@gofmt -w $$(find . -type f -name '*.go' -not -path './.cache/*' -not -path './.git/*' -not -path './vendor/*')
+	@gofumpt -w -extra $$(find . -type f -name '*.go' -not -path './.cache/*' -not -path './.git/*' -not -path './vendor/*')
 	$(GOLANGCI_LINT) run --fix ./...  > /dev/null 2>&1 || true
 
 fmt-check:
@@ -53,10 +54,13 @@ $(STATICCHECK):
 staticcheck: $(STATICCHECK)
 	$(STATICCHECK) $(GO_PACKAGES)
 
-test:
-	$(GOTEST) --race -count=1 ./...
+$(GOTESTSUM):
+	$(GOCMD) install gotest.tools/gotestsum@latest
 
-test-cover:
-	$(GOTEST) -race -coverprofile=coverage.out ./...
+test: $(GOTESTSUM)
+	$(GOTESTSUM) --format short-verbose -- --race -count=1 ./...
+
+test-cover: $(GOTESTSUM)
+	$(GOTESTSUM) --format short-verbose -- -race -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
