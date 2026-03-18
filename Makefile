@@ -24,7 +24,7 @@ build:
 plugin:
 	$(GOBUILD) -buildmode=plugin -o $(PLUGIN_NAME) ./plugin/
 
-check: vet fmt-check golangci-lint-analyzer golangci-lint-rest staticcheck
+check: vet fmt-check golangci-lint staticcheck
 
 vet:
 	go vet $(GO_PACKAGES)
@@ -42,11 +42,8 @@ fmt-check:
 $(GOLANGCI_LINT):
 	$(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-golangci-lint-analyzer: $(GOLANGCI_LINT)
-	$(GOLANGCI_LINT) run ./pkg/analyzer/...
-
-golangci-lint-rest: $(GOLANGCI_LINT)
-	$(GOLANGCI_LINT) run ./cmd/... ./plugin/...
+golangci-lint: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) run ./...
 
 $(STATICCHECK):
 	$(GOCMD) install honnef.co/go/tools/cmd/staticcheck@latest
