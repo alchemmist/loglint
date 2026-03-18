@@ -15,14 +15,14 @@ type Config struct {
 }
 
 type RulesConfig struct {
-	LowercaseStart  bool `json:"lowercaseStart"  yaml:"lowercase_start"`
-	EnglishOnly     bool `json:"englishOnly"     yaml:"english_only"`
-	NoSpecialChars  bool `json:"noSpecialChars"  yaml:"no_special_chars"`
-	NoSensitiveData bool `json:"noSensitiveData" yaml:"no_sensitive_data"`
+	LowercaseStart  bool `json:"lowercase_start"  yaml:"lowercase_start"`
+	EnglishOnly     bool `json:"english_only"     yaml:"english_only"`
+	NoSpecialChars  bool `json:"no_special_chars" yaml:"no_special_chars"`
+	NoSensitiveData bool `json:"no_sensitive_data" yaml:"no_sensitive_data"`
 }
 
 type PatternsConfig struct {
-	SensitiveKeywords []string `json:"sensitiveKeywords" yaml:"sensitive_keywords"`
+	SensitiveKeywords []string `json:"sensitive_keywords" yaml:"sensitive_keywords"`
 }
 
 func DefaultConfig() *Config {

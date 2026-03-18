@@ -1,6 +1,7 @@
 package example
 
 import (
+	"context"
 	"log/slog"
 )
 
@@ -18,11 +19,8 @@ func exampleSlog() {
 	slog.Error("failed to connect to database")
 
 	// Rule 2: non-English
-	slog.Info("\u0437\u0430\u043f\u0443\u0441\u043a" +
-		" \u0441\u0435\u0440\u0432\u0435\u0440\u0430") // want `log message should be in English only`
-	slog.Error("\u043e\u0448\u0438\u0431\u043a\u0430" +
-		" \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u044f \u043a" +
-		" \u0431\u0430\u0437\u0435 \u0434\u0430\u043d\u043d\u044b\u0445") // want `log message should be in English only`
+	slog.Info("\u0437\u0430\u043f\u0443\u0441\u043a \u0441\u0435\u0440\u0432\u0435\u0440\u0430")                                                                                               // want `log message should be in English only`
+	slog.Error("\u043e\u0448\u0438\u0431\u043a\u0430 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u044f \u043a \u0431\u0430\u0437\u0435 \u0434\u0430\u043d\u043d\u044b\u0445") // want `log message should be in English only`
 
 	// Rule 2: correct
 	slog.Info("starting server")
@@ -30,9 +28,12 @@ func exampleSlog() {
 
 	// Rule 3: special chars/emojis
 	slog.Info("server started! \U0001f680") // want `log message should not contain special characters or emojis`
+	slog.Error("connection failed!!!")      // want `log message should not contain repeated punctuation`
+	slog.Warn("something went wrong...")    // want `log message should not contain repeated punctuation`
 
 	// Rule 3: correct
 	slog.Info("server started")
+	slog.Info("all good!")
 
 	// Rule 4: sensitive data
 	slog.Info("user password: " + password) // want `log message may contain sensitive data`
@@ -43,4 +44,24 @@ func exampleSlog() {
 	slog.Info("user authenticated successfully")
 	slog.Debug("api request completed")
 	slog.Info("token validated")
+
+	// slog.Log message index handling
+	slog.Log(context.Background(), slog.LevelInfo, "Starting server") // want `log message should start with a lowercase letter`
+	slog.Log(context.Background(), slog.LevelInfo, "starting server")
+
+	// Logger variable name handling
+	logger := slog.Default()
+	logger.Info("Starting server") // want `log message should start with a lowercase letter`
+	logger.Info("starting server")
+}
+
+type MyDB struct{}
+
+func (db *MyDB) Info(msg string)  {}
+func (db *MyDB) Error(msg string) {}
+
+func exampleNoFalsePositives() {
+	db := &MyDB{}
+	db.Info("Database schema loaded")
+	db.Error("Connection pool full")
 }

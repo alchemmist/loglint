@@ -133,7 +133,7 @@ func run(pass *analysis.Pass) (any, error) {
 		analyzeCall(pass, call, cfg)
 	})
 
-	return struct{}{}, nil
+	return nil, nil
 }
 
 func analyzeCall(pass *analysis.Pass, call *ast.CallExpr, cfg *Config) {
@@ -143,32 +143,28 @@ func analyzeCall(pass *analysis.Pass, call *ast.CallExpr, cfg *Config) {
 	}
 
 	lit, ok := getStringLiteral(msgArg)
-	if !ok {
-		return
-	}
+	if ok {
+		msg, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			return
+		}
 
-	msg, err := strconv.Unquote(lit.Value)
-	if err != nil {
-		return
-	}
+		if len(msg) > 0 {
+			pos := lit.Pos() + 1
+			end := lit.End() - 1
 
-	if len(msg) == 0 {
-		return
-	}
+			if cfg.Rules.LowercaseStart {
+				checkLowercaseStart(pass, pos, end, msg)
+			}
 
-	pos := lit.Pos() + 1
-	end := lit.End() - 1
+			if cfg.Rules.EnglishOnly {
+				checkEnglishOnly(pass, pos, end, msg)
+			}
 
-	if cfg.Rules.LowercaseStart {
-		checkLowercaseStart(pass, pos, end, msg)
-	}
-
-	if cfg.Rules.EnglishOnly {
-		checkEnglishOnly(pass, pos, end, msg)
-	}
-
-	if cfg.Rules.NoSpecialChars {
-		checkNoSpecialChars(pass, pos, end, msg)
+			if cfg.Rules.NoSpecialChars {
+				checkNoSpecialChars(pass, pos, end, msg)
+			}
+		}
 	}
 
 	if cfg.Rules.NoSensitiveData {
@@ -182,7 +178,7 @@ func checkSensitiveDataInArgs(pass *analysis.Pass, call *ast.CallExpr, msgIndex 
 	}
 
 	msgArg := call.Args[msgIndex]
-	checkNoSensitiveData(pass, msgArg.Pos(), msgArg.End(), msgArg, keywords)
+	checkNoSensitiveData(pass, msgArg, keywords)
 
 	for i := msgIndex + 1; i < len(call.Args); i++ {
 		arg := call.Args[i]

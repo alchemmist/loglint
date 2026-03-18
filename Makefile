@@ -1,4 +1,4 @@
-.PHONY: build lint vet fmt fmt-check staticcheck plugin golangci-lint-analyzer golangci-lint-rest
+.PHONY: build lint vet fmt fmt-check staticcheck plugin golangci-lint-analyzer golangci-lint-rest test test-cover
 
 BINARY_NAME = loglint
 PLUGIN_NAME = loglint.so
@@ -7,6 +7,9 @@ GOCMD = go
 GOBUILD = $(GOCMD) build
 GOTEST = $(GOCMD) test
 GOMOD = $(GOCMD) mod
+GOCACHE_DIR := $(CURDIR)/.cache
+export GOCACHE := $(GOCACHE_DIR)/go-build
+export GOMODCACHE := $(GOCACHE_DIR)/go-mod
 GOBIN := $(shell go env GOPATH)/bin
 GO_PACKAGES := ./...
 
@@ -42,3 +45,11 @@ golangci-lint-rest:
 staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 	$(STATICCHECK) $(GO_PACKAGES)
+
+test:
+	$(GOTEST) --race -count=1 ./...
+
+test-cover:
+	$(GOTEST) -race -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
