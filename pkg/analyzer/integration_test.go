@@ -9,18 +9,24 @@ import (
 )
 
 func TestIntegrationSlog(t *testing.T) {
+	t.Parallel()
+
 	analysistest.Run(t, testdataDir(t), analyzer.NewAnalyzer(), "example")
 }
 
 func TestIntegrationZap(t *testing.T) {
+	t.Parallel()
+
 	analysistest.Run(t, testdataDir(t), analyzer.NewAnalyzer(), "zap_example")
 }
 
 func testdataDir(t *testing.T) string {
 	t.Helper()
+
 	path, err := filepath.Abs(filepath.Join("..", "..", "testdata"))
 	if err != nil {
 		t.Fatalf("resolve testdata path: %v", err)
 	}
+
 	return path
 }

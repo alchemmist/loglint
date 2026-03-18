@@ -15,9 +15,9 @@ type Config struct {
 }
 
 type RulesConfig struct {
-	LowercaseStart  bool `json:"lowercase_start"  yaml:"lowercase_start"`
-	EnglishOnly     bool `json:"english_only"     yaml:"english_only"`
-	NoSpecialChars  bool `json:"no_special_chars" yaml:"no_special_chars"`
+	LowercaseStart  bool `json:"lowercase_start"   yaml:"lowercase_start"`
+	EnglishOnly     bool `json:"english_only"      yaml:"english_only"`
+	NoSpecialChars  bool `json:"no_special_chars"  yaml:"no_special_chars"`
 	NoSensitiveData bool `json:"no_sensitive_data" yaml:"no_sensitive_data"`
 }
 

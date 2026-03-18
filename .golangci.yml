@@ -8,6 +8,7 @@ linters:
     - godox
     - gochecknoglobals
     - nlreturn
+    - testpackage
 
 linters-settings:
   depguard:
@@ -25,5 +26,5 @@ linters-settings:
     case:
       use-field-name: false
       rules:
-        json: camel
+        json: snake
         yaml: snake

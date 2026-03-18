@@ -133,7 +133,7 @@ func run(pass *analysis.Pass) (any, error) {
 		analyzeCall(pass, call, cfg)
 	})
 
-	return nil, nil
+	return struct{}{}, nil
 }
 
 func analyzeCall(pass *analysis.Pass, call *ast.CallExpr, cfg *Config) {
@@ -142,34 +142,41 @@ func analyzeCall(pass *analysis.Pass, call *ast.CallExpr, cfg *Config) {
 		return
 	}
 
-	lit, ok := getStringLiteral(msgArg)
-	if ok {
-		msg, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			return
+	msg, pos, end, ok := getLiteralMessage(msgArg)
+	if ok && len(msg) > 0 {
+		if cfg.Rules.LowercaseStart {
+			checkLowercaseStart(pass, pos, end, msg)
 		}
 
-		if len(msg) > 0 {
-			pos := lit.Pos() + 1
-			end := lit.End() - 1
+		if cfg.Rules.EnglishOnly {
+			checkEnglishOnly(pass, pos, end, msg)
+		}
 
-			if cfg.Rules.LowercaseStart {
-				checkLowercaseStart(pass, pos, end, msg)
-			}
-
-			if cfg.Rules.EnglishOnly {
-				checkEnglishOnly(pass, pos, end, msg)
-			}
-
-			if cfg.Rules.NoSpecialChars {
-				checkNoSpecialChars(pass, pos, end, msg)
-			}
+		if cfg.Rules.NoSpecialChars {
+			checkNoSpecialChars(pass, pos, end, msg)
 		}
 	}
 
 	if cfg.Rules.NoSensitiveData {
 		checkSensitiveDataInArgs(pass, call, msgIndex, cfg.Patterns.SensitiveKeywords)
 	}
+}
+
+func getLiteralMessage(expr ast.Expr) (string, token.Pos, token.Pos, bool) {
+	lit, ok := getStringLiteral(expr)
+	if !ok {
+		return "", token.NoPos, token.NoPos, false
+	}
+
+	msg, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", token.NoPos, token.NoPos, false
+	}
+
+	pos := lit.Pos() + 1
+	end := lit.End() - 1
+
+	return msg, pos, end, true
 }
 
 func checkSensitiveDataInArgs(pass *analysis.Pass, call *ast.CallExpr, msgIndex int, keywords []string) {

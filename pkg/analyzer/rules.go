@@ -232,28 +232,25 @@ func cleanSpecialChars(s string) string {
 	return strings.TrimSpace(result)
 }
 
-func checkNoSensitiveData(pass *analysis.Pass, pos, end token.Pos, expr ast.Expr, keywords []string) {
-	if binExpr, ok := expr.(*ast.BinaryExpr); ok && binExpr.Op == token.ADD {
-		checkSensitiveConcatenation(pass, pos, end, binExpr, keywords)
-		return
-	}
-
-	if call, ok := expr.(*ast.CallExpr); ok {
-		checkSensitiveFmtCall(pass, pos, end, call, keywords)
-	}
+func checkNoSensitiveData(pass *analysis.Pass, expr ast.Expr, keywords []string) {
+	checkExprForSensitive(pass, expr, keywords)
 }
 
-func checkSensitiveConcatenation(pass *analysis.Pass, pos, end token.Pos, expr *ast.BinaryExpr, keywords []string) {
+func checkExprForSensitive(pass *analysis.Pass, expr ast.Expr, keywords []string) {
 	ast.Inspect(expr, func(node ast.Node) bool {
-		if ident, ok := node.(*ast.Ident); ok {
-			nameLower := strings.ToLower(ident.Name)
+		switch nodeValue := node.(type) {
+		case *ast.Ident:
+			lower := strings.ToLower(nodeValue.Name)
 			for _, keyword := range keywords {
-				if strings.Contains(nameLower, keyword) {
+				if strings.Contains(lower, keyword) {
 					pass.Report(analysis.Diagnostic{
-						Pos: pos,
-						End: end,
-						Message: fmt.Sprintf("log message may contain sensitive data: variable %q matches sensitive keyword"+
-							" %q", ident.Name, keyword),
+						Pos: nodeValue.Pos(),
+						End: nodeValue.End(),
+						Message: fmt.Sprintf(
+							"log message may contain sensitive data: variable %q matches sensitive keyword %q",
+							nodeValue.Name,
+							keyword,
+						),
 						Category:       "",
 						URL:            "",
 						Related:        nil,
@@ -263,56 +260,26 @@ func checkSensitiveConcatenation(pass *analysis.Pass, pos, end token.Pos, expr *
 					return false
 				}
 			}
-		}
-
-		return true
-	})
-}
-
-func checkSensitiveFmtCall(pass *analysis.Pass, pos, end token.Pos, call *ast.CallExpr, keywords []string) {
-	_, funcName, ok := isFmtCall(call)
-	if !ok {
-		return
-	}
-
-	args := fmtArgsToCheck(funcName, call)
-	if len(args) == 0 {
-		return
-	}
-
-	checkArgsForSensitive(pass, pos, end, args, keywords)
-}
-
-func checkArgsForSensitive(pass *analysis.Pass, pos, end token.Pos, args []ast.Expr, keywords []string) {
-	for _, arg := range args {
-		ast.Inspect(arg, func(node ast.Node) bool {
-			identNode, ok := node.(*ast.Ident)
+		case *ast.CallExpr:
+			funcName, ok := isFmtCall(nodeValue)
 			if !ok {
 				return true
 			}
 
-			nameLower := strings.ToLower(identNode.Name)
-
-			for _, keyword := range keywords {
-				if strings.Contains(nameLower, keyword) {
-					pass.Report(analysis.Diagnostic{
-						Pos: pos,
-						End: end,
-						Message: fmt.Sprintf("log message may contain sensitive data: variable %q matches sensitive keyword"+
-							" %q", identNode.Name, keyword),
-						Category:       "",
-						URL:            "",
-						Related:        nil,
-						SuggestedFixes: nil,
-					})
-
-					return false
-				}
+			for _, arg := range fmtArgsToCheck(funcName, nodeValue) {
+				checkExprForSensitive(pass, arg, keywords)
 			}
 
-			return true
-		})
-	}
+			return false
+		case *ast.BinaryExpr:
+			checkExprForSensitive(pass, nodeValue.X, keywords)
+			checkExprForSensitive(pass, nodeValue.Y, keywords)
+
+			return false
+		}
+
+		return true
+	})
 }
 
 func fmtArgsToCheck(funcName string, call *ast.CallExpr) []ast.Expr {
@@ -328,16 +295,16 @@ func fmtArgsToCheck(funcName string, call *ast.CallExpr) []ast.Expr {
 	return nil
 }
 
-func isFmtCall(call *ast.CallExpr) (*ast.Ident, string, bool) {
+func isFmtCall(call *ast.CallExpr) (string, bool) {
 	sel, isSelector := call.Fun.(*ast.SelectorExpr)
 	if !isSelector {
-		return nil, "", false
+		return "", false
 	}
 
 	identExpr, isIdent := sel.X.(*ast.Ident)
 	if !isIdent || identExpr.Name != "fmt" {
-		return nil, "", false
+		return "", false
 	}
 
-	return identExpr, sel.Sel.Name, true
+	return sel.Sel.Name, true
 }

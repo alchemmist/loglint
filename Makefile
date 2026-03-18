@@ -7,7 +7,8 @@ GOCMD = go
 GOBUILD = $(GOCMD) build
 GOTEST = $(GOCMD) test
 GOMOD = $(GOCMD) mod
-GOCACHE_DIR := $(CURDIR)/.cache
+TMPDIR ?= /tmp
+GOCACHE_DIR := $(TMPDIR)/loglint-cache
 export GOCACHE := $(GOCACHE_DIR)/go-build
 export GOMODCACHE := $(GOCACHE_DIR)/go-mod
 GOBIN := $(shell go env GOPATH)/bin
@@ -34,16 +35,22 @@ fmt:
 	$(GOLANGCI_LINT) run --fix ./...  > /dev/null 2>&1 || true
 
 fmt-check:
-	@test -z "$$(gofmt -l .)" || (echo "Files not formatted:" && gofmt -l . && exit 1)
+	@unformatted="$$(gofmt -l $$(find . -type f -name '*.go' -not -path './.cache/*' -not -path './.git/*' -not -path './vendor/*'))"; \
+	test -z "$$unformatted" || (echo "Files not formatted:" && echo "$$unformatted" && exit 1)
 
-golangci-lint-analyzer:
+$(GOLANGCI_LINT):
+	$(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+golangci-lint-analyzer: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./pkg/analyzer/...
 
-golangci-lint-rest:
+golangci-lint-rest: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./cmd/... ./plugin/...
 
-staticcheck:
-	go install honnef.co/go/tools/cmd/staticcheck@latest
+$(STATICCHECK):
+	$(GOCMD) install honnef.co/go/tools/cmd/staticcheck@latest
+
+staticcheck: $(STATICCHECK)
 	$(STATICCHECK) $(GO_PACKAGES)
 
 test:
