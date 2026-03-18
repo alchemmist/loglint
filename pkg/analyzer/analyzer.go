@@ -5,6 +5,7 @@ import (
 	"flag"
 	"go/ast"
 	"go/token"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -13,12 +14,11 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-var (
-	configFlag string
-	fixFlag    bool
-)
-
 func NewAnalyzer() *analysis.Analyzer {
+	flags := flag.NewFlagSet("loglint", flag.ExitOnError)
+	flags.String("config", "", "path to loglint configuration file")
+	flags.Bool("fix", false, "apply suggested automatic fixes")
+
 	analyzer := &analysis.Analyzer{
 		Name: "loglint",
 		Doc: "checks log messages for common issues: " +
@@ -27,14 +27,11 @@ func NewAnalyzer() *analysis.Analyzer {
 		Requires:         []*analysis.Analyzer{inspect.Analyzer},
 		Run:              run,
 		URL:              "https://github.com/alchemmsit/loglint",
-		Flags:            *flag.NewFlagSet("loglint", flag.ExitOnError),
+		Flags:            *flags,
 		RunDespiteErrors: false,
-		ResultType:       nil,
+		ResultType:       reflect.TypeOf(struct{}{}),
 		FactTypes:        nil,
 	}
-
-	analyzer.Flags.StringVar(&configFlag, "config", "", "path to loglint configuration file")
-	analyzer.Flags.BoolVar(&fixFlag, "fix", false, "apply suggested automatic fixes")
 
 	return analyzer
 }
@@ -102,10 +99,13 @@ var ErrNoInspector = errors.New("expected inspector.Inspector from inspect.Analy
 func run(pass *analysis.Pass) (any, error) {
 	var cfg *Config
 
-	if configFlag != "" {
+	configPath := getStringFlag(&pass.Analyzer.Flags, "config")
+	_ = getBoolFlag(&pass.Analyzer.Flags, "fix")
+
+	if configPath != "" {
 		var err error
 
-		cfg, err = loadConfigFile(configFlag)
+		cfg, err = loadConfigFile(configPath)
 		if err != nil {
 			cfg = DefaultConfig()
 		}
@@ -134,6 +134,42 @@ func run(pass *analysis.Pass) (any, error) {
 	})
 
 	return struct{}{}, nil
+}
+
+func getStringFlag(flags *flag.FlagSet, name string) string {
+	if flags == nil {
+		return ""
+	}
+
+	flagValue := flags.Lookup(name)
+	if flagValue == nil || flagValue.Value == nil {
+		return ""
+	}
+
+	return flagValue.Value.String()
+}
+
+func getBoolFlag(flags *flag.FlagSet, name string) bool {
+	if flags == nil {
+		return false
+	}
+
+	flagValue := flags.Lookup(name)
+	if flagValue == nil || flagValue.Value == nil {
+		return false
+	}
+
+	getter, ok := flagValue.Value.(flag.Getter)
+	if !ok {
+		return false
+	}
+
+	value, ok := getter.Get().(bool)
+	if !ok {
+		return false
+	}
+
+	return value
 }
 
 func analyzeCall(pass *analysis.Pass, call *ast.CallExpr, cfg *Config) {
