@@ -1,11 +1,12 @@
-// Command loglint runs the loglint analyzer as a standalone tool.
-
 package main
 
 import (
-	"log/slog"
+	"github.com/alchemmist/loglint/pkg/analyzer"
+	"golang.org/x/tools/go/analysis/singlechecker"
 )
 
+var runSinglechecker = singlechecker.Main
+
 func main() {
-	slog.Info("cli in development...")
+	runSinglechecker(analyzer.NewAnalyzer())
 }

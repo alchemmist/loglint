@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "lowercase_start": false,
+    "english_only": true,
+    "no_special_chars": false,
+    "no_sensitive_data": false
+  },
+  "patterns": {
+    "sensitive_keywords": ["token"]
+  }
+}

@@ -4,10 +4,14 @@ type Logger struct{}
 
 type SugaredLogger struct{}
 
-func (*Logger) Info(msg string)  {}
-func (*Logger) Warn(msg string)  {}
-func (*Logger) Error(msg string) {}
-func (*Logger) Debug(msg string) {}
+type Field struct{}
+
+func String(key, val string) Field { return Field{} }
+
+func (*Logger) Info(msg string, fields ...Field)  {}
+func (*Logger) Warn(msg string, fields ...Field)  {}
+func (*Logger) Error(msg string, fields ...Field) {}
+func (*Logger) Debug(msg string, fields ...Field) {}
 
 func (*SugaredLogger) Info(msg string)                          {}
 func (*SugaredLogger) Infof(msg string, args ...any)            {}

@@ -1,9 +1,14 @@
 package analyzer
 
 import (
+	"go/ast"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/analysis"
 )
 
 func TestAnalyzer(t *testing.T) {
@@ -74,10 +79,10 @@ func TestIsSpecialChar(t *testing.T) {
 		{"letter", 'a', false},
 		{"digit", '1', false},
 		{"space", ' ', false},
-		{"dot", '.', false},
-		{"comma", ',', false},
-		{"colon", ':', false},
-		{"exclamation", '!', false},
+		{"dot", '.', true},
+		{"comma", ',', true},
+		{"colon", ':', true},
+		{"exclamation", '!', true},
 		{"cyrillic", '\u0430', false}, // а (Russian) — letters are caught by english_only rule
 		{"emoji rocket", '\U0001f680', true},
 	}
@@ -104,8 +109,9 @@ func TestCleanSpecialChars(t *testing.T) {
 	}{
 		{"with emoji", "server started \U0001f680", "server started"},
 		{"clean", "hello world", "hello world"},
-		{"emoji in middle", "error! \U0001f4a5 boom", "error! boom"},
+		{"emoji in middle", "error! \U0001f4a5 boom", "error boom"},
 		{"only emoji", "\U0001f680\U0001f525", ""},
+		{"punctuation", "error: bad!", "error bad"},
 	}
 
 	for _, testCase := range tests {
@@ -258,6 +264,324 @@ func TestLoadConfigMissing(t *testing.T) {
 
 	if cfg != nil {
 		t.Error("expected nil config for missing file")
+	}
+}
+
+func TestCheckExprForSensitiveEmptyKeywords(t *testing.T) {
+	t.Parallel()
+
+	diagnostics := 0
+	pass := &analysis.Pass{ //nolint:exhaustruct
+		Report: func(_ analysis.Diagnostic) {
+			diagnostics++
+		},
+	}
+
+	checkExprForSensitive(pass, &ast.Ident{Name: "token"}, nil, true)                                  //nolint:exhaustruct
+	checkExprForSensitive(pass, &ast.BasicLit{Kind: token.STRING, Value: `"token"`}, []string{}, true) //nolint:exhaustruct
+
+	if diagnostics != 0 {
+		t.Errorf("expected no diagnostics with empty keywords, got %d", diagnostics)
+	}
+}
+
+func TestCheckLowercaseStart(t *testing.T) {
+	t.Parallel()
+
+	diags := collectDiagnostics(func(pass *analysis.Pass) {
+		checkLowercaseStart(pass, token.Pos(1), token.Pos(5), "Hello")
+	})
+
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d", len(diags))
+	}
+
+	if !strings.Contains(diags[0].Message, "lowercase") {
+		t.Fatalf("unexpected diagnostic: %q", diags[0].Message)
+	}
+}
+
+func TestCheckEnglishOnly(t *testing.T) {
+	t.Parallel()
+
+	diags := collectDiagnostics(func(pass *analysis.Pass) {
+		checkEnglishOnly(pass, token.Pos(1), token.Pos(10), "запуск сервера")
+	})
+
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d", len(diags))
+	}
+}
+
+func TestCheckNoSpecialChars(t *testing.T) {
+	t.Parallel()
+
+	diags := collectDiagnostics(func(pass *analysis.Pass) {
+		checkNoSpecialChars(pass, token.Pos(1), token.Pos(10), "server started!")
+	})
+
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d", len(diags))
+	}
+}
+
+func TestCheckExprForSensitive(t *testing.T) {
+	t.Parallel()
+
+	keywords := []string{"token"}
+	diags := collectDiagnostics(func(pass *analysis.Pass) {
+		checkExprForSensitive(pass, &ast.Ident{Name: "tokenValue"}, keywords, false) //nolint:exhaustruct
+	})
+
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d", len(diags))
+	}
+}
+
+func TestCheckExprForSensitiveLiteral(t *testing.T) {
+	t.Parallel()
+
+	keywords := []string{"token"}
+	diags := collectDiagnostics(func(pass *analysis.Pass) {
+		checkExprForSensitive(pass, &ast.BasicLit{Kind: token.STRING, Value: `"token"`}, keywords, true) //nolint:exhaustruct
+	})
+
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d", len(diags))
+	}
+}
+
+func collectDiagnostics(run func(*analysis.Pass)) []analysis.Diagnostic {
+	diagnostics := make([]analysis.Diagnostic, 0, 4)
+	pass := &analysis.Pass{ //nolint:exhaustruct
+		Report: func(d analysis.Diagnostic) {
+			diagnostics = append(diagnostics, d)
+		},
+	}
+
+	run(pass)
+
+	return diagnostics
+}
+
+func TestExtractLogMessageSlogSelectors(t *testing.T) {
+	t.Parallel()
+
+	ctx := &ast.Ident{Name: "ctx"}     //nolint:exhaustruct
+	level := &ast.Ident{Name: "level"} //nolint:exhaustruct
+	msg := stringLit("msg")
+
+	tests := []struct {
+		name      string
+		call      *ast.CallExpr
+		wantIndex int
+		wantNil   bool
+	}{
+		{
+			name: "slog info",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun: &ast.SelectorExpr{
+					X:   &ast.Ident{Name: "slog"}, //nolint:exhaustruct
+					Sel: &ast.Ident{Name: "Info"}, //nolint:exhaustruct
+				},
+				Args: []ast.Expr{msg},
+			},
+			wantIndex: 0,
+			wantNil:   false,
+		},
+		{
+			name: "slog log",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun: &ast.SelectorExpr{
+					X:   &ast.Ident{Name: "slog"}, //nolint:exhaustruct
+					Sel: &ast.Ident{Name: "Log"},  //nolint:exhaustruct
+				},
+				Args: []ast.Expr{ctx, level, msg},
+			},
+			wantIndex: 2,
+			wantNil:   false,
+		},
+		{
+			name: "slog info context",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun: &ast.SelectorExpr{
+					X:   &ast.Ident{Name: "slog"},        //nolint:exhaustruct
+					Sel: &ast.Ident{Name: "InfoContext"}, //nolint:exhaustruct
+				},
+				Args: []ast.Expr{ctx, msg},
+			},
+			wantIndex: 1,
+			wantNil:   false,
+		},
+	}
+
+	assertExtractLogMessage(t, tests, msg)
+}
+
+func TestExtractLogMessageReceivers(t *testing.T) {
+	t.Parallel()
+
+	msg := stringLit("msg")
+
+	tests := []struct {
+		name      string
+		call      *ast.CallExpr
+		wantIndex int
+		wantNil   bool
+	}{
+		{
+			name: "std log ident",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun:  &ast.Ident{Name: "Printf"}, //nolint:exhaustruct
+				Args: []ast.Expr{msg},
+			},
+			wantIndex: 0,
+			wantNil:   false,
+		},
+		{
+			name: "known receiver slog",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun: &ast.SelectorExpr{
+					X:   &ast.Ident{Name: "logger"}, //nolint:exhaustruct
+					Sel: &ast.Ident{Name: "Info"},   //nolint:exhaustruct
+				},
+				Args: []ast.Expr{msg},
+			},
+			wantIndex: 0,
+			wantNil:   false,
+		},
+		{
+			name: "known receiver zap sugar",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun: &ast.SelectorExpr{
+					X:   &ast.Ident{Name: "sugar"}, //nolint:exhaustruct
+					Sel: &ast.Ident{Name: "Infow"}, //nolint:exhaustruct
+				},
+				Args: []ast.Expr{msg},
+			},
+			wantIndex: 0,
+			wantNil:   false,
+		},
+		{
+			name: "known receiver zap logger",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun: &ast.SelectorExpr{
+					X:   &ast.Ident{Name: "zap"},  //nolint:exhaustruct
+					Sel: &ast.Ident{Name: "Info"}, //nolint:exhaustruct
+				},
+				Args: []ast.Expr{msg},
+			},
+			wantIndex: 0,
+			wantNil:   false,
+		},
+	}
+
+	assertExtractLogMessage(t, tests, msg)
+}
+
+func TestExtractLogMessageFallbacks(t *testing.T) {
+	t.Parallel()
+
+	msg := stringLit("msg")
+
+	tests := []struct {
+		name      string
+		call      *ast.CallExpr
+		wantIndex int
+		wantNil   bool
+	}{
+		{
+			name: "call expr receiver",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun: &ast.SelectorExpr{
+					X:   &ast.CallExpr{},           //nolint:exhaustruct
+					Sel: &ast.Ident{Name: "Infof"}, //nolint:exhaustruct
+				},
+				Args: []ast.Expr{msg},
+			},
+			wantIndex: 0,
+			wantNil:   false,
+		},
+		{
+			name: "zap specific fallback",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun: &ast.SelectorExpr{
+					X:   &ast.IndexExpr{},          //nolint:exhaustruct
+					Sel: &ast.Ident{Name: "Infof"}, //nolint:exhaustruct
+				},
+				Args: []ast.Expr{msg},
+			},
+			wantIndex: 0,
+			wantNil:   false,
+		},
+		{
+			name: "no args",
+			call: &ast.CallExpr{ //nolint:exhaustruct
+				Fun:  &ast.Ident{Name: "Printf"}, //nolint:exhaustruct
+				Args: nil,
+			},
+			wantIndex: -1,
+			wantNil:   true,
+		},
+	}
+
+	assertExtractLogMessage(t, tests, msg)
+}
+
+func TestGetLiteralMessage(t *testing.T) {
+	t.Parallel()
+
+	msg, pos, end, ok := getLiteralMessage(stringLit("hello"))
+	if !ok {
+		t.Fatal("expected literal message")
+	}
+
+	if msg != "hello" {
+		t.Fatalf("unexpected message: %q", msg)
+	}
+
+	if pos == token.NoPos || end == token.NoPos {
+		t.Fatalf("expected positions, got %v %v", pos, end)
+	}
+}
+
+func assertExtractLogMessage(t *testing.T, tests []struct {
+	name      string
+	call      *ast.CallExpr
+	wantIndex int
+	wantNil   bool
+}, msg ast.Expr,
+) {
+	t.Helper()
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotExpr, gotIdx := extractLogMessage(testCase.call)
+			if testCase.wantNil {
+				if gotExpr != nil || gotIdx != -1 {
+					t.Fatalf("expected nil/-1, got %v/%d", gotExpr, gotIdx)
+				}
+
+				return
+			}
+
+			if gotExpr != msg {
+				t.Fatalf("unexpected message expr: %#v", gotExpr)
+			}
+
+			if gotIdx != testCase.wantIndex {
+				t.Fatalf("unexpected index: %d", gotIdx)
+			}
+		})
+	}
+}
+
+func stringLit(value string) *ast.BasicLit {
+	return &ast.BasicLit{ //nolint:exhaustruct
+		Kind:  token.STRING,
+		Value: `"` + value + `"`,
 	}
 }
 

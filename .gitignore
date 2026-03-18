@@ -11,3 +11,4 @@
 /loglint.so
 /.cache/
 coverage.out
+coverage.html

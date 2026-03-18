@@ -4,6 +4,7 @@ import "go.uber.org/zap"
 
 func exampleZap(logger *zap.Logger, sugar *zap.SugaredLogger) {
 	token := "tok-xyz"
+	value := "ok"
 
 	// Rule 1: uppercase start
 	logger.Info("Starting server")        // want `log message should start with a lowercase letter`
@@ -17,7 +18,9 @@ func exampleZap(logger *zap.Logger, sugar *zap.SugaredLogger) {
 	sugar.Infof("done! \U0001f680") // want `log message should not contain special characters or emojis`
 
 	// Rule 4: sensitive data
-	sugar.Infof("token: " + token) // want `log message may contain sensitive data`
+	sugar.Infof("token: " + token)                            // want `log message may contain sensitive data`
+	sugar.Infow("request processed", "token", value)          // want `log message may contain sensitive data: literal "token" matches sensitive keyword "token"`
+	logger.Info("server started", zap.String("token", value)) // want `log message may contain sensitive data: literal "token" matches sensitive keyword "token"`
 
 	// Correct
 	logger.Info("server started successfully")

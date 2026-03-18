@@ -2,6 +2,7 @@ package example
 
 import (
 	"context"
+	"log"
 	"log/slog"
 )
 
@@ -9,6 +10,7 @@ func exampleSlog() {
 	password := "secret123"
 	apiKey := "key-abc"
 	token := "tok-xyz"
+	ctx := context.Background()
 
 	// Rule 1: uppercase start
 	slog.Info("Starting server on port 8080")   // want `log message should start with a lowercase letter`
@@ -36,9 +38,10 @@ func exampleSlog() {
 	slog.Info("all good!")
 
 	// Rule 4: sensitive data
-	slog.Info("user password: " + password) // want `log message may contain sensitive data`
-	slog.Debug("api_key=" + apiKey)         // want `log message may contain sensitive data`
-	slog.Info("token: " + token)            // want `log message may contain sensitive data`
+	slog.Info("user password: " + password)             // want `log message may contain sensitive data`
+	slog.Debug("api_key=" + apiKey)                     // want `log message may contain sensitive data`
+	slog.Info("token: " + token)                        // want `log message may contain sensitive data`
+	slog.Info("user session updated", "token", "value") // want `log message may contain sensitive data: literal "token" matches sensitive keyword "token"`
 
 	// Rule 4: correct
 	slog.Info("user authenticated successfully")
@@ -46,13 +49,21 @@ func exampleSlog() {
 	slog.Info("token validated")
 
 	// slog.Log message index handling
-	slog.Log(context.Background(), slog.LevelInfo, "Starting server") // want `log message should start with a lowercase letter`
-	slog.Log(context.Background(), slog.LevelInfo, "starting server")
+	slog.Log(ctx, slog.LevelInfo, "Starting server")                      // want `log message should start with a lowercase letter`
+	slog.Log(ctx, slog.LevelInfo, "processing request", "token", "value") // want `log message may contain sensitive data: literal "token" matches sensitive keyword "token"`
+	slog.Log(ctx, slog.LevelInfo, "starting server")
+
+	// slog.Context methods
+	slog.InfoContext(ctx, "Starting server") // want `log message should start with a lowercase letter`
+	slog.WarnContext(ctx, "starting server")
 
 	// Logger variable name handling
 	logger := slog.Default()
 	logger.Info("Starting server") // want `log message should start with a lowercase letter`
 	logger.Info("starting server")
+
+	// std log package
+	log.Printf("Starting server") // want `log message should start with a lowercase letter`
 }
 
 type MyDB struct{}

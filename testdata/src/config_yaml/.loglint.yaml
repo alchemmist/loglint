@@ -1,0 +1,8 @@
+rules:
+  lowercase_start: false
+  english_only: false
+  no_special_chars: true
+  no_sensitive_data: false
+patterns:
+  sensitive_keywords:
+    - token

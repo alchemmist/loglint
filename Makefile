@@ -1,4 +1,4 @@
-.PHONY: build lint vet fmt fmt-check staticcheck plugin golangci-lint-analyzer golangci-lint-rest test test-cover
+.PHONY: build lint vet fmt fmt-check staticcheck plugin golangci-lint-analyzer golangci-lint-rest test test-cover tools clean
 
 BINARY_NAME = loglint
 PLUGIN_NAME = loglint.so
@@ -17,6 +17,12 @@ GO_PACKAGES := ./...
 GOLANGCI_LINT := $(GOBIN)/golangci-lint
 STATICCHECK := $(GOBIN)/staticcheck
 GOTESTSUM := $(GOBIN)/gotestsum
+GOFUMPT := $(GOBIN)/gofumpt
+
+GOLANGCI_LINT_VERSION ?= latest
+STATICCHECK_VERSION ?= latest
+GOTESTSUM_VERSION ?= latest
+GOFUMPT_VERSION ?= latest
 
 build:
 	$(GOBUILD) -o $(BINARY_NAME) ./cmd/loglint/
@@ -30,9 +36,9 @@ vet:
 	go vet $(GO_PACKAGES)
 
 fmt:
-	go install mvdan.cc/gofumpt@latest
+	$(GOFUMPT) version > /dev/null 2>&1 || $(GOCMD) install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
 	@gofmt -w $$(find . -type f -name '*.go' -not -path './.cache/*' -not -path './.git/*' -not -path './vendor/*')
-	@gofumpt -w -extra $$(find . -type f -name '*.go' -not -path './.cache/*' -not -path './.git/*' -not -path './vendor/*')
+	@$(GOFUMPT) -w -extra $$(find . -type f -name '*.go' -not -path './.cache/*' -not -path './.git/*' -not -path './vendor/*')
 	$(GOLANGCI_LINT) run --fix ./...  > /dev/null 2>&1 || true
 
 fmt-check:
@@ -40,19 +46,28 @@ fmt-check:
 	test -z "$$unformatted" || (echo "Files not formatted:" && echo "$$unformatted" && exit 1)
 
 $(GOLANGCI_LINT):
-	$(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	$(GOCMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 golangci-lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./...
 
 $(STATICCHECK):
-	$(GOCMD) install honnef.co/go/tools/cmd/staticcheck@latest
+	$(GOCMD) install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 
 staticcheck: $(STATICCHECK)
 	$(STATICCHECK) $(GO_PACKAGES)
 
 $(GOTESTSUM):
-	$(GOCMD) install gotest.tools/gotestsum@latest
+	$(GOCMD) install gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
+
+$(GOFUMPT):
+	$(GOCMD) install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
+
+tools: $(GOLANGCI_LINT) $(STATICCHECK) $(GOTESTSUM) $(GOFUMPT)
+
+clean:
+	@chmod -R u+w .cache 2>/dev/null || true
+	rm -rf $(BINARY_NAME) $(PLUGIN_NAME) coverage.out coverage.html .cache
 
 test: $(GOTESTSUM)
 	$(GOTESTSUM) --format short-verbose -- --race -count=1 ./...

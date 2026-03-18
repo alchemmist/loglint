@@ -8,7 +8,7 @@
 |---|------|-------------|
 | 1 | **lowercase_start** | Log messages must start with a lowercase letter |
 | 2 | **english_only** | Log messages must contain English text only |
-| 3 | **no_special_chars** | Log messages must not contain emojis, special characters, or repeated punctuation |
+| 3 | **no_special_chars** | Log messages must not contain emojis or any punctuation/special characters |
 | 4 | **no_sensitive_data** | Log messages must not include sensitive data (by keyword matching) |
 
 ## Supported loggers
@@ -33,7 +33,24 @@ make plugin
 
 ### Standalone CLI
 
-The `cmd/loglint` entrypoint is currently a stub and does not yet run the analyzer. Use the `golangci-lint` plugin integration for now.
+Build:
+
+```bash
+make build
+```
+
+Run:
+
+```bash
+./loglint ./...
+```
+
+You can also pass `-config` or `-fix`:
+
+```bash
+./loglint -config /path/to/.loglint.yml ./...
+./loglint -fix ./...
+```
 
 ## Usage
 
@@ -116,7 +133,7 @@ patterns:
 The analyzer can apply suggested fixes for:
 
 - Rule 1: convert the first character to lowercase
-- Rule 3: remove emojis/special characters and collapse repeated punctuation
+- Rule 3: remove emojis/special characters
 
 Use the `-fix` flag when running through `golangci-lint`.
 
@@ -128,6 +145,9 @@ Use the `-fix` flag when running through `golangci-lint`.
 ## Development
 
 ```bash
+# Install dev tools
+make tools
+
 # Run tests
 make test
 
@@ -139,6 +159,9 @@ make check
 
 # Format the codebase (gofmt + gofumpt)
 make fmt
+
+# Clean build artifacts and local caches
+make clean
 ```
 
 ## Project layout

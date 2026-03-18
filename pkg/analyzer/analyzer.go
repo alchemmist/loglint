@@ -22,11 +22,11 @@ func NewAnalyzer() *analysis.Analyzer {
 	analyzer := &analysis.Analyzer{
 		Name: "loglint",
 		Doc: "checks log messages for common issues: " +
-			"uppercase start, non-English text, " +
+			"lowercase start, non-English text, " +
 			"special characters, and sensitive data",
 		Requires:         []*analysis.Analyzer{inspect.Analyzer},
 		Run:              run,
-		URL:              "https://github.com/alchemmsit/loglint",
+		URL:              "https://github.com/alchemmist/loglint",
 		Flags:            *flags,
 		RunDespiteErrors: false,
 		ResultType:       reflect.TypeOf(struct{}{}),
@@ -100,7 +100,6 @@ func run(pass *analysis.Pass) (any, error) {
 	var cfg *Config
 
 	configPath := getStringFlag(&pass.Analyzer.Flags, "config")
-	_ = getBoolFlag(&pass.Analyzer.Flags, "fix")
 
 	if configPath != "" {
 		var err error
@@ -147,29 +146,6 @@ func getStringFlag(flags *flag.FlagSet, name string) string {
 	}
 
 	return flagValue.Value.String()
-}
-
-func getBoolFlag(flags *flag.FlagSet, name string) bool {
-	if flags == nil {
-		return false
-	}
-
-	flagValue := flags.Lookup(name)
-	if flagValue == nil || flagValue.Value == nil {
-		return false
-	}
-
-	getter, getterOK := flagValue.Value.(flag.Getter)
-	if !getterOK {
-		return false
-	}
-
-	value, valueOK := getter.Get().(bool)
-	if !valueOK {
-		return false
-	}
-
-	return value
 }
 
 func analyzeCall(pass *analysis.Pass, call *ast.CallExpr, cfg *Config) {
@@ -220,36 +196,11 @@ func checkSensitiveDataInArgs(pass *analysis.Pass, call *ast.CallExpr, msgIndex 
 		return
 	}
 
-	msgArg := call.Args[msgIndex]
-	checkNoSensitiveData(pass, msgArg, keywords)
+	checkExprForSensitive(pass, call.Args[msgIndex], keywords, false)
 
 	for i := msgIndex + 1; i < len(call.Args); i++ {
-		arg := call.Args[i]
-		checkSensitiveIdent(pass, arg, keywords)
+		checkExprForSensitive(pass, call.Args[i], keywords, true)
 	}
-}
-
-func checkSensitiveIdent(pass *analysis.Pass, expr ast.Expr, keywords []string) {
-	ast.Inspect(expr, func(n ast.Node) bool {
-		identNode, ok := n.(*ast.Ident)
-		if !ok {
-			return true
-		}
-
-		lowerName := strings.ToLower(identNode.Name)
-
-		for _, keyword := range keywords {
-			if strings.Contains(lowerName, keyword) {
-				pass.Reportf(expr.Pos(),
-					"log argument may contain sensitive data: variable %q matches sensitive keyword %q",
-					identNode.Name, keyword)
-
-				return false
-			}
-		}
-
-		return true
-	})
 }
 
 func extractLogMessage(call *ast.CallExpr) (ast.Expr, int) {

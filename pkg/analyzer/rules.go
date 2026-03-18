@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -103,70 +104,6 @@ func checkNoSpecialChars(pass *analysis.Pass, litPos, litEnd token.Pos, msg stri
 			return
 		}
 	}
-
-	if rep, found := findRepeatedPunctuation(msg); found {
-		pass.Report(analysis.Diagnostic{
-			Pos:      litPos,
-			End:      litEnd,
-			Message:  fmt.Sprintf("log message should not contain repeated punctuation %q in %q", rep, msg),
-			Category: "",
-			URL:      "",
-			Related:  nil,
-			SuggestedFixes: []analysis.SuggestedFix{
-				{
-					Message: "clean up repeated punctuation",
-					TextEdits: []analysis.TextEdit{
-						{
-							Pos:     litPos,
-							End:     litEnd,
-							NewText: []byte(cleanRepeatedPunctuation(msg)),
-						},
-					},
-				},
-			},
-		})
-	}
-}
-
-const minRepeatedPunctuation = 2
-
-func findRepeatedPunctuation(s string) (string, bool) {
-	runes := []rune(s)
-
-	for idx := range len(runes) - 1 {
-		currentRune := runes[idx]
-		if !unicode.IsLetter(currentRune) && !unicode.IsDigit(currentRune) && !unicode.IsSpace(currentRune) {
-			count := 1
-
-			for nextIdx := idx + 1; nextIdx < len(runes) && runes[nextIdx] == currentRune; nextIdx++ {
-				count++
-			}
-
-			if count >= minRepeatedPunctuation {
-				return string(runes[idx : idx+count]), true
-			}
-		}
-	}
-
-	return "", false
-}
-
-func cleanRepeatedPunctuation(s string) string {
-	runes := []rune(s)
-
-	var builder strings.Builder
-
-	for idx := 0; idx < len(runes); idx++ {
-		builder.WriteRune(runes[idx])
-
-		if !unicode.IsLetter(runes[idx]) && !unicode.IsDigit(runes[idx]) && !unicode.IsSpace(runes[idx]) {
-			for idx+1 < len(runes) && runes[idx+1] == runes[idx] {
-				idx++
-			}
-		}
-	}
-
-	return strings.TrimSpace(builder.String())
 }
 
 type runeRange struct {
@@ -203,16 +140,7 @@ func isSpecialChar(runeChar rune) bool {
 		return false
 	}
 
-	allowed := ".,;:'-/?!=()[]{}@#$%^&*_+\\|<>`~\""
-	if strings.ContainsRune(allowed, runeChar) {
-		return false
-	}
-
-	if runeChar >= 0x20 && runeChar <= 0x7E {
-		return false
-	}
-
-	return runeChar > unicode.MaxASCII
+	return true
 }
 
 func cleanSpecialChars(s string) string {
@@ -232,54 +160,128 @@ func cleanSpecialChars(s string) string {
 	return strings.TrimSpace(result)
 }
 
-func checkNoSensitiveData(pass *analysis.Pass, expr ast.Expr, keywords []string) {
-	checkExprForSensitive(pass, expr, keywords)
+func checkExprForSensitive(pass *analysis.Pass, expr ast.Expr, keywords []string, allowStringLiteral bool) {
+	if expr == nil || len(keywords) == 0 {
+		return
+	}
+
+	visitor := sensitiveVisitor{
+		pass:               pass,
+		keywords:           keywords,
+		allowStringLiteral: allowStringLiteral,
+	}
+	ast.Inspect(expr, visitor.visit)
 }
 
-func checkExprForSensitive(pass *analysis.Pass, expr ast.Expr, keywords []string) {
-	ast.Inspect(expr, func(node ast.Node) bool {
-		switch nodeValue := node.(type) {
-		case *ast.Ident:
-			lower := strings.ToLower(nodeValue.Name)
-			for _, keyword := range keywords {
-				if strings.Contains(lower, keyword) {
-					pass.Report(analysis.Diagnostic{
-						Pos: nodeValue.Pos(),
-						End: nodeValue.End(),
-						Message: fmt.Sprintf(
-							"log message may contain sensitive data: variable %q matches sensitive keyword %q",
-							nodeValue.Name,
-							keyword,
-						),
-						Category:       "",
-						URL:            "",
-						Related:        nil,
-						SuggestedFixes: nil,
-					})
+type sensitiveVisitor struct {
+	pass               *analysis.Pass
+	keywords           []string
+	allowStringLiteral bool
+}
 
-					return false
-				}
-			}
-		case *ast.CallExpr:
-			funcName, ok := isFmtCall(nodeValue)
-			if !ok {
-				return true
-			}
-
-			for _, arg := range fmtArgsToCheck(funcName, nodeValue) {
-				checkExprForSensitive(pass, arg, keywords)
-			}
-
-			return false
-		case *ast.BinaryExpr:
-			checkExprForSensitive(pass, nodeValue.X, keywords)
-			checkExprForSensitive(pass, nodeValue.Y, keywords)
-
-			return false
-		}
-
+func (v *sensitiveVisitor) visit(node ast.Node) bool {
+	switch nodeValue := node.(type) {
+	case *ast.BasicLit:
+		return v.handleBasicLit(nodeValue)
+	case *ast.Ident:
+		return v.handleIdent(nodeValue)
+	case *ast.CallExpr:
+		return v.handleCallExpr(nodeValue)
+	case *ast.BinaryExpr:
+		v.handleBinaryExpr(nodeValue)
+		return false
+	default:
 		return true
-	})
+	}
+}
+
+func (v *sensitiveVisitor) handleBasicLit(lit *ast.BasicLit) bool {
+	if !v.allowStringLiteral || lit.Kind != token.STRING {
+		return true
+	}
+
+	unquoted, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return true
+	}
+
+	if v.reportLiteral(lit, unquoted) {
+		return false
+	}
+
+	return true
+}
+
+func (v *sensitiveVisitor) handleIdent(ident *ast.Ident) bool {
+	return !v.reportIdent(ident)
+}
+
+func (v *sensitiveVisitor) handleCallExpr(call *ast.CallExpr) bool {
+	funcName, ok := isFmtCall(call)
+	if !ok {
+		return true
+	}
+
+	for _, arg := range fmtArgsToCheck(funcName, call) {
+		checkExprForSensitive(v.pass, arg, v.keywords, v.allowStringLiteral)
+	}
+
+	return false
+}
+
+func (v *sensitiveVisitor) handleBinaryExpr(expr *ast.BinaryExpr) {
+	checkExprForSensitive(v.pass, expr.X, v.keywords, v.allowStringLiteral)
+	checkExprForSensitive(v.pass, expr.Y, v.keywords, v.allowStringLiteral)
+}
+
+func (v *sensitiveVisitor) reportIdent(ident *ast.Ident) bool {
+	lower := strings.ToLower(ident.Name)
+	for _, keyword := range v.keywords {
+		if strings.Contains(lower, keyword) {
+			v.pass.Report(analysis.Diagnostic{
+				Pos: ident.Pos(),
+				End: ident.End(),
+				Message: fmt.Sprintf(
+					"log message may contain sensitive data: variable %q matches sensitive keyword %q",
+					ident.Name,
+					keyword,
+				),
+				Category:       "",
+				URL:            "",
+				Related:        nil,
+				SuggestedFixes: nil,
+			})
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func (v *sensitiveVisitor) reportLiteral(lit *ast.BasicLit, unquoted string) bool {
+	lower := strings.ToLower(unquoted)
+	for _, keyword := range v.keywords {
+		if strings.Contains(lower, keyword) {
+			v.pass.Report(analysis.Diagnostic{
+				Pos: lit.Pos(),
+				End: lit.End(),
+				Message: fmt.Sprintf(
+					"log message may contain sensitive data: literal %q matches sensitive keyword %q",
+					unquoted,
+					keyword,
+				),
+				Category:       "",
+				URL:            "",
+				Related:        nil,
+				SuggestedFixes: nil,
+			})
+
+			return true
+		}
+	}
+
+	return false
 }
 
 func fmtArgsToCheck(funcName string, call *ast.CallExpr) []ast.Expr {
