@@ -1,21 +1,27 @@
 # loglint
 
-`loglint` is a Go static analyzer that checks log messages for common quality and safety issues. It is designed to run as a `golangci-lint` plugin and focuses on message text hygiene and sensitive data leaks.
+![go version](https://img.shields.io/badge/go-1.25.0-00ADD8?logo=go&logoColor=white)
+![license](https://img.shields.io/badge/license-MIT-2ea44f)
+![type](https://img.shields.io/badge/type-go%2Fanalysis-555555)
 
-## Rules
+`loglint` is a Go static analyzer that checks log messages for quality and safety issues. It runs as a `golangci-lint` plugin or as a standalone analyzer (singlechecker).
+
+## What it checks
 
 | # | Rule | Description |
 |---|------|-------------|
-| 1 | **lowercase_start** | Log messages must start with a lowercase letter |
-| 2 | **english_only** | Log messages must contain English text only |
-| 3 | **no_special_chars** | Log messages must not contain emojis or any punctuation/special characters |
-| 4 | **no_sensitive_data** | Log messages must not include sensitive data (by keyword matching) |
+| 1 | **lowercase_start** | Log messages must start with a lowercase letter (string literals only) |
+| 2 | **english_only** | Log messages must not contain non-ASCII letters (string literals only; emojis ignored) |
+| 3 | **no_special_chars** | Log messages must not contain emojis or non-alnum characters (string literals only) |
+| 4 | **no_sensitive_data** | Looks for sensitive keywords in identifiers in the message expression and in identifiers or string literals in arguments after the message |
 
 ## Supported loggers
 
-- `log/slog` (standard structured logger)
-- `go.uber.org/zap` (Logger and SugaredLogger)
-- `log` (standard library logger)
+- `log/slog` with `Info/Warn/Error/Debug`, `*Context`, and `Log`
+- `go.uber.org/zap` with `SugaredLogger` (`Info/Infof/Infow/...`) and `Logger` (`Info/Warn/Error/...`)
+- `log` (standard library) with `Print*`, `Fatal*`, and `Panic*`
+
+The analyzer also recognizes common receiver names like `log`, `logger`, `l`, `s`, `sugar`, and `zap` when deciding how to extract the message argument.
 
 ## Installation
 
@@ -31,28 +37,18 @@ make build
 make plugin
 ```
 
+## Usage
+
 ### Standalone CLI
-
-Build:
-
-```bash
-make build
-```
-
-Run:
 
 ```bash
 ./loglint ./...
 ```
 
-You can also pass `-config` or `-fix`:
+Flags:
 
-```bash
-./loglint -config /path/to/.loglint.yml ./...
-./loglint -fix ./...
-```
-
-## Usage
+- `-config /path/to/.loglint.yml`
+- `-fix` (apply suggested fixes)
 
 ### As a golangci-lint plugin
 
@@ -83,15 +79,17 @@ linters:
 golangci-lint run
 ```
 
+If your `golangci-lint` version supports analyzer fixes, run it with `--fix` to apply `loglint` suggestions.
+
 ## Configuration
 
-Create a configuration file in your project root:
+Supported file names:
 
 - `.loglint.yml`
 - `.loglint.yaml`
 - `.loglint.json`
 
-The analyzer searches the current directory and all parent directories.
+The analyzer searches the current directory and all parent directories. You can also pass `-config` to point to a specific file.
 
 ### Example (YAML)
 
@@ -109,7 +107,6 @@ patterns:
     - token
     - api_key
     - private_key
-    - my_custom_secret
 ```
 
 ### Example (JSON)
@@ -128,26 +125,25 @@ patterns:
 }
 ```
 
+If `sensitive_keywords` is empty, the default keyword list is used.
+
 ## Auto-fix
 
-The analyzer can apply suggested fixes for:
+Suggested fixes are provided for:
 
-- Rule 1: convert the first character to lowercase
-- Rule 3: remove emojis/special characters
+- **lowercase_start**: lowercases the first character
+- **no_special_chars**: removes emojis and non-alnum characters (collapses extra spaces)
 
-Use the `-fix` flag when running through `golangci-lint`.
+Apply fixes via `-fix` in the standalone CLI or via `golangci-lint --fix` if supported.
 
 ## Notes and limitations
 
 - Rules 1-3 only run when the log message is a string literal.
-- Rule 4 scans identifiers inside the message expression and subsequent arguments for sensitive keywords.
+- The sensitive data rule does not scan the literal message text itself. It scans identifiers in the message expression and identifiers or string literals in arguments after the message.
 
 ## Development
 
 ```bash
-# Install dev tools
-make tools
-
 # Run tests
 make test
 
@@ -167,7 +163,7 @@ make clean
 ## Project layout
 
 ```
-cmd/           # Standalone CLI entrypoint (stub)
+cmd/           # Standalone CLI entrypoint
 pkg/analyzer/  # Analyzer implementation, rules, and config
 plugin/        # golangci-lint plugin
 testdata/      # Analyzer test fixtures

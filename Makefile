@@ -1,4 +1,4 @@
-.PHONY: build lint vet fmt fmt-check staticcheck plugin golangci-lint-analyzer golangci-lint-rest test test-cover tools clean
+.PHONY: build lint vet fmt fmt-check staticcheck plugin golangci-lint-analyzer golangci-lint-rest test test-cover clean
 
 BINARY_NAME = loglint
 PLUGIN_NAME = loglint.so
@@ -62,8 +62,6 @@ $(GOTESTSUM):
 
 $(GOFUMPT):
 	$(GOCMD) install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
-
-tools: $(GOLANGCI_LINT) $(STATICCHECK) $(GOTESTSUM) $(GOFUMPT)
 
 clean:
 	@chmod -R u+w .cache 2>/dev/null || true
